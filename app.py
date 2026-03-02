@@ -2,70 +2,88 @@ import streamlit as st
 import pickle
 import numpy as np
 import os
-from pathlib import Path
 
-# Get the directory where the script is located
-BASE_DIR = Path(__file__).parent
-
+# -------------------------------
+# SAFE MODEL LOADING
+# -------------------------------
 @st.cache_resource
 def load_models():
-    try:
-        # Try to load pickle files
-        with open(BASE_DIR / "rf_classifier.pkl", "rb") as f:
-            rf_clf = pickle.load(f)
-        with open(BASE_DIR / "gbr_regressor.pkl", "rb") as f:
-            gbr_reg = pickle.load(f)
-        with open(BASE_DIR / "preprocessor.pkl", "rb") as f:
-            preprocessor = pickle.load(f)
-        return rf_clf, gbr_reg, preprocessor
-    except Exception as e:
-        st.error(f"Error loading models: {str(e)}")
-        return None, None, None
+    base_path = os.path.dirname(__file__)
 
-st.title("🪐 Stellar Analytics")
-st.markdown("**F1=0.833 | RMSE=1.55 R⊕ | TECHNEX '26 Live Demo**")
+    rf_path = os.path.join(base_path, "rf_classifier.pkl")
+    gbr_path = os.path.join(base_path, "gbr_regressor.pkl")
+    pre_path = os.path.join(base_path, "preprocessor.pkl")
 
-# Load models
+    rf_clf = pickle.load(open(rf_path, "rb"))
+    gbr_reg = pickle.load(open(gbr_path, "rb"))
+    preprocessor = pickle.load(open(pre_path, "rb"))
+
+    return rf_clf, gbr_reg, preprocessor
+
 rf_clf, gbr_reg, preprocessor = load_models()
 
-if rf_clf is None:
-    st.warning("⚠️ Models could not be loaded. Please check the repository files.")
-    st.stop()
-
+# -------------------------------
 # UI
+# -------------------------------
+st.set_page_config(page_title="Stellar Analytics", layout="centered")
+
+st.title("🪐 Stellar Analytics")
+st.caption("F1 = 0.833 | RMSE = 1.55 R⊕")
+
+st.subheader("Input Stellar Parameters")
+
 col1, col2 = st.columns(2)
 
-with col1:
-    period = col1.number_input("Period (days)", 0.1, 1000, 10.0)
-    depth = col1.number_input("Depth (%)", 0.0, 5.0, 0.5)
-    impact = col1.number_input("Impact", 0.0, 1.5, 0.8)
+koi_period = col1.number_input("Orbital Period (days)", 0.1, 1000.0, 10.0)
+koi_duration = col1.number_input("Transit Duration (hrs)", 0.1, 50.0, 5.0)
+koi_depth = col1.number_input("Transit Depth (%)", 0.0, 5.0, 0.5)
+koi_impact = col2.number_input("Impact Parameter", 0.0, 1.5, 0.8)
+koi_model_snr = col2.number_input("Signal-to-Noise Ratio", 0.0, 10000.0, 1000.0)
 
-with col2:
-    snr = col2.number_input("SNR", 0.0, 10000, 1000)
+koi_num_transits = st.number_input("Number of Transits", 1, 50, 3)
 
-if st.button("🔍 PREDICT", type="primary"):
+st.subheader("Host Star Properties")
+
+st_teff = col1.number_input("Stellar Temperature (K)", 3000, 8000, 5500)
+st_logg = col1.number_input("Stellar Gravity", 0.0, 5.0, 4.0)
+st_met = col2.number_input("Metallicity", -2.5, 1.0, 0.0)
+st_mass = col2.number_input("Stellar Mass", 0.1, 5.0, 1.0)
+st_radius = st.number_input("Stellar Radius", 0.1, 5.0, 1.0)
+
+# -------------------------------
+# PREDICTION
+# -------------------------------
+if st.button("🚀 Predict"):
+
+    input_data = np.array([[
+        koi_period,
+        koi_duration,
+        koi_depth / 100,
+        koi_impact,
+        koi_model_snr,
+        koi_num_transits,
+        st_teff,
+        st_logg,
+        st_met,
+        st_mass,
+        st_radius
+    ]])
+
     try:
-        # Create feature array
-        features = np.array([[period, 1.0, depth / 100, impact, snr, 3.0, 5500, 4.0, 0.0, 1.0, 1.0]])
-        
-        # Transform features
-        features_processed = preprocessor.transform(features)
-        
-        # Make predictions
-        exoplanet_prob = rf_clf.predict_proba(features_processed)[0][1]
-        radius = gbr_reg.predict(features_processed)[0]
-        
-        # Display results
-        st.markdown("---")
-        col1, col2 = st.columns(2)
-        with col1:
-            st.metric("🌍 Exoplanet Probability", f"{exoplanet_prob*100:.2f}%")
-        with col2:
-            st.metric("📏 Predicted Radius", f"{radius:.2f} R⊕")
-        
-        st.success("✅ Prediction complete!")
-    except Exception as e:
-        st.error(f"❌ Prediction failed: {str(e)}")
+        processed = preprocessor.transform(input_data)
 
-st.markdown("---")
-st.info("📝 Built with Streamlit | Data: Exoplanet Hunting Dataset")
+        prob = rf_clf.predict_proba(processed)[0][1]
+        pred_class = rf_clf.predict(processed)[0]
+
+        st.subheader("Prediction Result")
+
+        if pred_class == 1:
+            st.success(f"🪐 Confirmed Candidate ({prob:.1%} confidence)")
+            radius = gbr_reg.predict(processed)[0]
+            st.info(f"Estimated Radius: {radius:.2f} Earth Radii")
+        else:
+            st.error(f"❌ False Positive ({prob:.1%} confidence)")
+
+    except Exception as e:
+        st.error("Prediction Failed ❌")
+        st.exception(e)
