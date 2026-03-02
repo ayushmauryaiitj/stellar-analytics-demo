@@ -4,6 +4,11 @@ import numpy as np
 import os
 
 # -------------------------------
+# PAGE CONFIG (MUST BE FIRST)
+# -------------------------------
+st.set_page_config(page_title="Stellar Analytics", layout="centered")
+
+# -------------------------------
 # SAFE MODEL LOADING
 # -------------------------------
 @st.cache_resource
@@ -25,7 +30,6 @@ rf_clf, gbr_reg, preprocessor = load_models()
 # -------------------------------
 # UI
 # -------------------------------
-st.set_page_config(page_title="Stellar Analytics", layout="centered")
 
 st.title("🪐 Stellar Analytics")
 st.caption("F1 = 0.833 | RMSE = 1.55 R⊕")
