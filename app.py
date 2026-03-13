@@ -1,3 +1,4 @@
+# v2.0 - Updated defaults for CONFIRMED predictions
 import streamlit as st
 import numpy as np
 import joblib
