@@ -1,68 +1,126 @@
 import streamlit as st
-import pickle
 import numpy as np
-import os
+import joblib
 
-# -------------------------------
-# PAGE CONFIG (MUST BE FIRST)
-# -------------------------------
-st.set_page_config(page_title="Stellar Analytics", layout="centered")
-
-# -------------------------------
-# SAFE MODEL LOADING
-# -------------------------------
+# Load models and preprocessing
 @st.cache_resource
 def load_models():
-    base_path = os.path.dirname(__file__)
+    classification_model = joblib.load("classification_model.pkl")
+    regression_model = joblib.load("regression_model.pkl")
+    scaler = joblib.load("scaler.pkl")
+    return classification_model, regression_model, scaler
 
-    rf_path = os.path.join(base_path, "rf_classifier.pkl")
-    gbr_path = os.path.join(base_path, "gbr_regressor.pkl")
-    pre_path = os.path.join(base_path, "preprocessor.pkl")
+clf_model, reg_model, scaler = load_models()
 
-    rf_clf = pickle.load(open(rf_path, "rb"))
-    gbr_reg = pickle.load(open(gbr_path, "rb"))
-    preprocessor = pickle.load(open(pre_path, "rb"))
-
-    return rf_clf, gbr_reg, preprocessor
-
-rf_clf, gbr_reg, preprocessor = load_models()
-
-# -------------------------------
-# UI
-# -------------------------------
+# Streamlit App UI
+st.set_page_config(
+    page_title="Stellar Analytics",
+    page_icon="🪐",
+    layout="centered"
+)
 
 st.title("🪐 Stellar Analytics")
-st.caption("F1 = 0.833 | RMSE = 1.55 R⊕")
+st.markdown("F1 = 0.833 | RMSE = 1.55 R⊕")
 
-st.subheader("Input Stellar Parameters")
+st.markdown("### Input Stellar Parameters")
 
-col1, col2 = st.columns(2)
+# DEFAULT VALUES OPTIMIZED FOR CONFIRMED PREDICTION
+koi_period = st.number_input(
+    "Orbital Period (days)",
+    min_value=0.1,
+    max_value=1000.0,
+    value=365.0,  # CONFIRMED: Earth-like orbit
+    step=0.1
+)
 
-koi_period = col1.number_input("Orbital Period (days)", 0.1, 1000.0, 10.0)
-koi_duration = col1.number_input("Transit Duration (hrs)", 0.1, 50.0, 5.0)
-koi_depth = col1.number_input("Transit Depth (%)", 0.0, 5.0, 0.5)
-koi_impact = col2.number_input("Impact Parameter", 0.0, 1.5, 0.8)
-koi_model_snr = col2.number_input("Signal-to-Noise Ratio", 0.0, 10000.0, 1000.0)
+koi_duration = st.number_input(
+    "Transit Duration (hrs)",
+    min_value=0.1,
+    max_value=50.0,
+    value=12.0,  # CONFIRMED: Longer duration
+    step=0.1
+)
 
-koi_num_transits = st.number_input("Number of Transits", 1, 50, 3)
+koi_depth = st.number_input(
+    "Transit Depth (%)",
+    min_value=0.0,
+    max_value=5.0,
+    value=1.5,  # CONFIRMED: Stronger signal
+    step=0.01
+)
 
-st.subheader("Host Star Properties")
+koi_impact = st.number_input(
+    "Impact Parameter",
+    min_value=0.0,
+    max_value=1.5,
+    value=0.2,  # CONFIRMED: Low impact
+    step=0.01
+)
 
-st_teff = col1.number_input("Stellar Temperature (K)", 3000, 8000, 5500)
-st_logg = col1.number_input("Stellar Gravity", 0.0, 5.0, 4.0)
-st_met = col2.number_input("Metallicity", -2.5, 1.0, 0.0)
-st_mass = col2.number_input("Stellar Mass", 0.1, 5.0, 1.0)
-st_radius = st.number_input("Stellar Radius", 0.1, 5.0, 1.0)
+koi_model_snr = st.number_input(
+    "Signal-to-Noise Ratio",
+    min_value=0.1,
+    max_value=10000.0,
+    value=5000.0,  # CONFIRMED: High SNR
+    step=1.0
+)
 
-# -------------------------------
-# PREDICTION
-# -------------------------------
-if st.button("🚀 Predict"):
+koi_num_transits = st.number_input(
+    "Number of Transits",
+    min_value=1,
+    max_value=50,
+    value=20,  # CONFIRMED: Many observations
+    step=1
+)
 
-    input_data = np.array([[
+st.markdown("### Host Star Properties")
+
+st_teff = st.number_input(
+    "Stellar Temperature (K)",
+    min_value=3000,
+    max_value=8000,
+    value=5500,
+    step=50
+)
+
+st_logg = st.number_input(
+    "Stellar Gravity (log g)",
+    min_value=0.0,
+    max_value=5.0,
+    value=3.5,  # CONFIRMED: Giant star
+    step=0.1
+)
+
+st_met = st.number_input(
+    "Metallicity [Fe/H]",
+    min_value=-2.5,
+    max_value=1.0,
+    value=0.0,
+    step=0.05
+)
+
+st_mass = st.number_input(
+    "Stellar Mass (Solar masses)",
+    min_value=0.1,
+    max_value=5.0,
+    value=1.0,
+    step=0.05
+)
+
+st_radius = st.number_input(
+    "Stellar Radius (Solar radii)",
+    min_value=0.1,
+    max_value=5.0,
+    value=1.0,
+    step=0.05
+)
+
+# Feature vector construction
+def build_feature_array():
+    features = np.array([[
         koi_period,
         koi_duration,
-        koi_depth / 100,
+        koi_depth,
         koi_impact,
         koi_model_snr,
         koi_num_transits,
@@ -71,23 +129,32 @@ if st.button("🚀 Predict"):
         st_met,
         st_mass,
         st_radius
-    ]])
+    ]], dtype=float)
+    return features
 
-    try:
-        processed = preprocessor.transform(input_data)
+# Prediction logic
+st.markdown("### Run Prediction")
 
-        prob = rf_clf.predict_proba(processed)[0][1]
-        pred_class = rf_clf.predict(processed)[0]
+if st.button("🚀 Predict"):
+    X = build_feature_array()
+    X_scaled = scaler.transform(X)
 
-        st.subheader("Prediction Result")
+    # 1. Classification
+    class_pred = clf_model.predict(X_scaled)[0]
+    class_proba = clf_model.predict_proba(X_scaled)[0]
+    pred_idx = list(clf_model.classes_).index(class_pred)
+    confidence = class_proba[pred_idx] * 100
 
-        if pred_class == 1:
-            st.success(f"🪐 Confirmed Candidate ({prob:.1%} confidence)")
-            radius = gbr_reg.predict(processed)[0]
-            st.info(f"Estimated Radius: {radius:.2f} Earth Radii")
-        else:
-            st.error(f"❌ False Positive ({prob:.1%} confidence)")
+    st.markdown("### Prediction Result")
 
-    except Exception as e:
-        st.error("Prediction Failed ❌")
-        st.exception(e)
+    if class_pred == "CONFIRMED":
+        st.success(f"✔ Confirmed Exoplanet (Confidence: {confidence:.1f}%)")
+
+        # 2. Regression only if confirmed
+        radius_pred = reg_model.predict(X_scaled)[0]
+
+        st.markdown("### Planet Radius Prediction")
+        st.info(f"🌍 Estimated Planet Radius: **{radius_pred:.2f}** Earth Radii")
+
+    else:
+        st.error(f"❌ False Positive (Confidence: {confidence:.1f}%)")
